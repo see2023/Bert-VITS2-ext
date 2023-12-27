@@ -186,3 +186,17 @@ logs/
 Data/*
 /onnx
 /.vs
+bert/
+logs/
+ffmpeg/
+*.zip
+bak/
+pretrained_models/
+custom_character_voice/
+test.ipynb
+records/
+*.wav
+*.npy
+OUTPUT_MODEL/
+configs/config.json
+*.bat

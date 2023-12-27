@@ -1,8 +1,101 @@
+# 简介
+* 本项目的目的是拓展[Bert-VITS2](https://github.com/fishaudio/Bert-VITS2)的使用边界，比如TTS同步产生脸部表情数据。
+* 效果参见
+
+
+# TTS
+
+* TTS代码源自 [Bert-VITS2](https://github.com/fishaudio/Bert-VITS2) v2.3 Final Release [ Dec 20, 2023]
+  * https://github.com/fishaudio/Bert-VITS2/commit/7ebc1aa28a055608f7e31da93928cf295fdffeba
+
+* 测试下来，个人感觉纯中文素材的训练效果2.1-2.3版本略微不如1.0，纯中文需求可以考虑降低版本或混合使用。
+
+* TTS本身的训练方法见原文(每个版本都有所不同)
+  * 1.0版本推荐参考 https://github.com/YYuX-1145/Bert-VITS2-Integration-package
+
+
+# TTS同步输出表情
+## 思路
+* 参考[VITS](https://arxiv.org/pdf/2106.06103.pdf)论文的网络结构图(非bert-vits2，但大体结构是一样的)，获取文本编码及变换后、解码前的隐变量z，从旁路输出表情值(Live Link Face数值)
+  * 冻结原网络的参数，单独增加一路LSTM和MLP处理，完成z到表情的seq2seq生成与映射
+  * 当然如果有高质量的表情数据，也可以把表情也加入原始TTS网络训练，应该能提高音频质量
+
+![网络结构](./img/bert-vits2-e.png)
+
+
+## 数据采集
+* 设置Live Link Face 的Targets 为本机IP，端口默认11111 
+* 同步采集语音和对应的Live Link输出的表情值，分别存入到records文件夹
+  * 执行一下脚本采集，每次20秒
+  * 音频默认为44100 Hz
+```
+python ./motion/record.py
+```
+
+* 查看数据是否正常
+  * [预览npy中的weight数值曲线](./motion/data.ipynb)
+
+* 测试数据
+  * 将录下的bs数据通过live link发给UE中的MetaHuman，同步播放语音，检查是否匹配
+```
+python ./motion/tts2ue.py  ./records/2023-12-23-17-19-54.npy ./records/2023-12-23-17-19-54.wav 60
+```
+
+## 数据预处理
+* 读取records中的所有音频文件，利用后验编码器，把音频编码后的隐变量z存入 *.z.npy
+* 写入训练和验证用的文件列表
+  * filelists/val_visemes.list
+  * filelists/train_visemes.list
+```
+python ./motion/prepare_visemes.py
+```
+
+## 训练
+* 在train_ms.py 后加上--visemes来区别和主网的训练
+```
+python train_ms.py  -m OUTPUT_MODEL --config ./configs/config.json --visemes
+```
+
+## 推理
+* 在webui.py执行时，将输出的音频、隐变量、动画数据写入当前目录，可用tts2ue.py来查看生成效果
+* 生成的动画默认的fps是和隐变量一样的86.1328125
+  * 44100/86.1328125 = 512，刚好整除，这是Bert-VITS2音频采样频率、网络结构和hidden_channels决定的
+```
+python ./motion/tts2ue.py tmp.npy tmp.wav 86.1328125
+```
+
+# 声音到表情
+* 利用后验编码器，把声音转换成z，然后再把z转成表情
+```
+python  ./motion/wav_to_visemes.py wav_file
+```
+
+
+
+
+# 身体动画
+
+* 有了语音和表情后，还可以在LLM驱动下产生与之匹配的动作描述，然后用text to motion模型生成与说话内容匹配的身体动画，甚至和场景、他人进行交互。
+* text to motion测试采用的项目是 [MotionGPT](https://github.com/OpenMotionLab/MotionGPT)
+  * 暂未做动画过度处理，看介绍模型是支持的 [motion in-between](https://motion-gpt.github.io/)
+  * MotionGPT用的flan-t5-base，不能理解中文，所以无法用说话的文本产生同步度很高的动画(翻译成英文后语序多少有些变化) 
+    * 是否可以用说话的文本或隐变量z来指导动作生成暂未可知
+* MotionGPT输出的是骨骼位置，与UE的骨骼动画不能直接对接
+  * 目前用了简化方法估算运动数值，会有不小的位置损失
+    * 计算出骨骼相对父节点的旋转变化量(四元数)
+      * 参考 [代码](motion/vmc_cli.py)
+    * 通过OSC协议发送给 [VMCtoMOP](https://github.com/HAL9HARUKU/VMCtoMOP)程序，可预览动画，并做协议转换
+    * 借助[Mop插件](https://github.com/HAL9HARUKU/MopUE4)将MOP数据映射给MetaHuman
+      * 测试版本是UE5.3
+
+
+
+# Bert-VITS2 原版声明
+
 <div align="center">
 
 <img alt="LOGO" src="https://cdn.jsdelivr.net/gh/fishaudio/fish-diffusion@main/images/logo_512x512.png" width="256" height="256" />
 
-# Bert-VITS2
 
 VITS2 Backbone with multilingual bert
 
@@ -24,7 +117,6 @@ For quick guide, please refer to `webui_preprocess.py`.
 ### 严禁用于任何政治相关用途。
 #### Video:https://www.bilibili.com/video/BV1hp4y1K78E
 #### Demo:https://www.bilibili.com/video/BV1TF411k78w
-#### QQ Group：815818430
 ## References
 + [anyvoiceai/MassTTS](https://github.com/anyvoiceai/MassTTS)
 + [jaywalnut310/vits](https://github.com/jaywalnut310/vits)
@@ -38,5 +130,3 @@ For quick guide, please refer to `webui_preprocess.py`.
 <a href="https://github.com/fishaudio/Bert-VITS2/graphs/contributors" target="_blank">
   <img src="https://contrib.rocks/image?repo=fishaudio/Bert-VITS2"/>
 </a>
-
-[//]: # (# 本项目所有代码引用均已写明，bert部分代码思路来源于[AI峰哥]&#40;https://www.bilibili.com/video/BV1w24y1c7z9&#41;，与[vits_chinese]&#40;https://github.com/PlayVoice/vits_chinese&#41;无任何关系。欢迎各位查阅代码。同时，我们也对该开发者的[碰瓷，乃至开盒开发者的行为]&#40;https://www.bilibili.com/read/cv27101514/&#41;表示强烈谴责。)

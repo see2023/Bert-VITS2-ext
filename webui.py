@@ -16,8 +16,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 import torch
+import torchaudio
 import utils
 from infer import infer, latest_version, get_net_g, infer_multilang
+from models import VisemesNet
 import gradio as gr
 import webbrowser
 import numpy as np
@@ -26,11 +28,28 @@ from tools.translate import translate
 import librosa
 
 net_g = None
+net_v = None
 
 device = config.webui_config.device
 if device == "mps":
     os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
+
+def audio_to_visemes(audio_raw, z):
+    global net_v
+    visemes = net_v(z)
+    visemes = visemes.squeeze(0)
+    visemes = visemes.transpose(0, 1)
+    visemes = visemes.data.cpu().float().numpy()
+    print('visemes shape:', visemes.shape)
+    # save as pcm_s16le wav
+    torchaudio.save('tmp.wav', audio_raw, hps.data.sampling_rate, encoding='PCM_S', bits_per_sample=16)
+
+    # save visemes to tmp.npy
+    np.save('tmp.npy', visemes)
+    # save z to tmp_z.npy like visemes
+    np.save('tmp_z.npy', z.squeeze(0).transpose(0, 1).data.cpu().float().numpy())
+    print('tmp.wav, tmp.npy, tmp_z.npy saved')
 
 def generate_audio(
     slices,
@@ -48,12 +67,14 @@ def generate_audio(
     skip_end=False,
 ):
     audio_list = []
+    audio_raw_list = []
+    z_list = []
     # silence = np.zeros(hps.data.sampling_rate // 2, dtype=np.int16)
     with torch.no_grad():
         for idx, piece in enumerate(slices):
             skip_start = idx != 0
             skip_end = idx != len(slices) - 1
-            audio = infer(
+            audio, audio_raw, z = infer(
                 piece,
                 reference_audio=reference_audio,
                 emotion=emotion,
@@ -73,6 +94,13 @@ def generate_audio(
             )
             audio16bit = gr.processing_utils.convert_to_16_bit_wav(audio)
             audio_list.append(audio16bit)
+            if idx == 0:
+                z_list = z
+                audio_raw_list = audio_raw
+            else:
+                z_list = torch.cat((z_list, z), dim=2)
+                audio_raw_list = np.concatenate((audio_raw_list, audio_raw), axis=0)
+    audio_to_visemes(audio_raw_list, z_list)
     return audio_list
 
 
@@ -90,12 +118,14 @@ def generate_audio_multilang(
     skip_end=False,
 ):
     audio_list = []
+    audio_raw_list = []
+    z_list = []
     # silence = np.zeros(hps.data.sampling_rate // 2, dtype=np.int16)
     with torch.no_grad():
         for idx, piece in enumerate(slices):
             skip_start = idx != 0
             skip_end = idx != len(slices) - 1
-            audio = infer_multilang(
+            audio,audio_raw, z = infer_multilang(
                 piece,
                 reference_audio=reference_audio,
                 emotion=emotion,
@@ -113,6 +143,15 @@ def generate_audio_multilang(
             )
             audio16bit = gr.processing_utils.convert_to_16_bit_wav(audio)
             audio_list.append(audio16bit)
+            # z: [1, 192, n]
+            # 在第n维上追加到z_list
+            if idx == 0:
+                z_list = z
+                audio_raw_list = audio_raw
+            else:
+                z_list = torch.cat((z_list, z), dim=2)
+                audio_raw_list = np.concatenate((audio_raw_list, audio_raw), axis=0)
+    audio_to_visemes(audio_raw_list, z_list)
     return audio_list
 
 
@@ -380,9 +419,16 @@ if __name__ == "__main__":
     net_g = get_net_g(
         model_path=config.webui_config.model, version=version, device=device, hps=hps
     )
+    net_v = VisemesNet(hps.model.hidden_channels).to(device)
+    _ = net_v.eval()
+    _ = utils.load_checkpoint(config.webui_config.v_model, net_v, None, skip_optimizer=True)
+    print("load v_model from", config.webui_config.v_model)
     speaker_ids = hps.data.spk2id
     speakers = list(speaker_ids.keys())
     languages = ["ZH", "JP", "EN", "mix", "auto"]
+    default_text = '''我是一只勤劳的蜜蜂，我有一身黑黄相间的花纹，一对透明的翅膀，一个带刺的尾巴。我喜欢采集花蜜，制作蜂蜜，保护蜂巢。你喜欢蜜蜂吗？'''
+    default_text = '''我是一只憨厚的大象，我有一副巨大的身躯，一条长长的鼻子，一双大大的耳朵。我喜欢吃草，喝水，洗澡。你喜欢大象吗？你有没有骑过大象呢？'''
+    default_text = '''今天我去了一个很fancy的餐厅，点了一份salad，一份steak，一杯red wine，还有一份cheesecake。味道非常delicious，服务也很professional，就是价格有点expensive，不过值得一试。'''
     with gr.Blocks() as app:
         with gr.Row():
             with gr.Column():
@@ -397,6 +443,7 @@ if __name__ == "__main__":
                          ...
                     另外，所有的语言选项都可以用'|'分割长段实现分句生成。
                     """,
+                    value=default_text,
                 )
                 trans = gr.Button("中翻日", variant="primary")
                 slicer = gr.Button("快速切分", variant="primary")
@@ -436,17 +483,17 @@ if __name__ == "__main__":
                     minimum=0.1, maximum=2, value=1.0, step=0.1, label="Length"
                 )
                 language = gr.Dropdown(
-                    choices=languages, value=languages[0], label="Language"
+                    choices=languages, value=languages[4], label="Language"
                 )
                 btn = gr.Button("生成音频！", variant="primary")
             with gr.Column():
-                with gr.Accordion("融合文本语义", open=False):
+                with gr.Accordion("融合文本语义", open=True):
                     gr.Markdown(
                         value="使用辅助文本的语意来辅助生成对话（语言保持与主文本相同）\n\n"
                         "**注意**：不要使用**指令式文本**（如：开心），要使用**带有强烈情感的文本**（如：我好快乐！！！）\n\n"
                         "效果较不明确，留空即为不使用该功能"
                     )
-                    style_text = gr.Textbox(label="辅助文本")
+                    style_text = gr.Textbox(label="辅助文本",value="我好快乐！！！")
                     style_weight = gr.Slider(
                         minimum=0,
                         maximum=1,

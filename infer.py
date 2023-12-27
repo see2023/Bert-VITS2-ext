@@ -272,25 +272,23 @@ def infer(
         # emo = emo.to(device).unsqueeze(0)
         del phones
         speakers = torch.LongTensor([hps.data.spk2id[sid]]).to(device)
-        audio = (
-            net_g.infer(
-                x_tst,
-                x_tst_lengths,
-                speakers,
-                tones,
-                lang_ids,
-                bert,
-                ja_bert,
-                en_bert,
-                sdp_ratio=sdp_ratio,
-                noise_scale=noise_scale,
-                noise_scale_w=noise_scale_w,
-                length_scale=length_scale,
-            )[0][0, 0]
-            .data.cpu()
-            .float()
-            .numpy()
+        audio, _, _, (z, _, _, _) =  net_g.infer(
+            x_tst,
+            x_tst_lengths,
+            speakers,
+            tones,
+            lang_ids,
+            bert,
+            ja_bert,
+            en_bert,
+            sdp_ratio=sdp_ratio,
+            noise_scale=noise_scale,
+            noise_scale_w=noise_scale_w,
+            length_scale=length_scale,
         )
+        
+        audio_raw = audio[0].data.cpu()
+        audio = audio[0][0].data.cpu().float().numpy()
         del (
             x_tst,
             tones,
@@ -303,7 +301,7 @@ def infer(
         )  # , emo
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-        return audio
+        return audio, audio_raw, z
 
 
 def infer_multilang(
@@ -377,8 +375,7 @@ def infer_multilang(
         x_tst_lengths = torch.LongTensor([phones.size(0)]).to(device)
         del phones
         speakers = torch.LongTensor([hps.data.spk2id[sid]]).to(device)
-        audio = (
-            net_g.infer(
+        audio, _, _, (z, _, _, _)  = net_g.infer(
                 x_tst,
                 x_tst_lengths,
                 speakers,
@@ -391,11 +388,10 @@ def infer_multilang(
                 noise_scale=noise_scale,
                 noise_scale_w=noise_scale_w,
                 length_scale=length_scale,
-            )[0][0, 0]
-            .data.cpu()
-            .float()
-            .numpy()
+            
         )
+        audio_raw = audio[0].data.cpu()
+        audio = audio[0][0].data.cpu().float().numpy()
         del (
             x_tst,
             tones,
@@ -408,4 +404,4 @@ def infer_multilang(
         )  # , emo
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-        return audio
+        return audio, audio_raw, z

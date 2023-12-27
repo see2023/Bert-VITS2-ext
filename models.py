@@ -1074,3 +1074,146 @@ class SynthesizerTrn(nn.Module):
         z = self.flow(z_p, y_mask, g=g, reverse=True)
         o = self.dec((z * y_mask)[:, :, :max_len], g=g)
         return o, attn, y_mask, (z, z_p, m_p, logs_p)
+
+    def get_post_enc_dec(self):
+        return self.enc_q, self.dec
+
+
+
+class VisemesNet(nn.Module):
+    def active(self, x):
+        #  active_fun: 0: null, 1: tanh, 2: relu
+        if self.active_fun == 1:
+            return torch.tanh(x)
+        elif self.active_fun == 2:
+            return torch.relu(x)
+        else:
+            return x
+
+    def __init__(self, hidden_channels, lstm_bidirectional=True, active_fun = 2, enable_conv=True, 
+                 use_transformer = False, enable_dropout=True):
+        super(VisemesNet, self).__init__()
+        self.lstm_bidirectional = lstm_bidirectional
+        self.lstm_directions = 2 if lstm_bidirectional else 1
+        self.use_transformer = use_transformer
+        self.enable_dropout = enable_dropout
+        if use_transformer:
+            num_heads=8
+            num_layers=3
+            dim_feedforward=512
+            dropout=0.1
+            activation="relu"
+            self.transformer_encoder_layer = nn.TransformerEncoderLayer(
+                d_model=hidden_channels, 
+                nhead=num_heads,
+                dim_feedforward=dim_feedforward,
+                dropout=dropout,
+                activation=activation,
+                batch_first=True
+            )
+            self.transformer_encoder = nn.TransformerEncoder(self.transformer_encoder_layer, num_layers=num_layers)
+        else:
+            self.lstm = nn.LSTM(input_size=hidden_channels, hidden_size=128, num_layers=3, batch_first=True, bidirectional=lstm_bidirectional)
+        if use_transformer:
+            self.fc1 = nn.Linear(hidden_channels, 96)
+        else:
+            self.fc1 = nn.Linear(128 * self.lstm_directions, 96)
+        self.fc2 = nn.Linear(96, 61)
+        dropout_rate = 0.5
+        if self.enable_dropout:
+            self.dropout = nn.Dropout(dropout_rate)
+        conv_kernel_pre = 15
+        conv_kernel_post = 11
+        self.conv1d_pre = nn.Conv1d(in_channels=hidden_channels, out_channels=hidden_channels, kernel_size=conv_kernel_pre, stride=1, padding=conv_kernel_pre//2)
+        self.conv1d_post = nn.Conv1d(in_channels=61, out_channels=61, kernel_size=conv_kernel_post, stride=1, padding=conv_kernel_post//2)
+        self.enable_conv = enable_conv
+        self.active_fun = active_fun
+
+    def forward(self, x, y=None):
+        # x [batch_size, hidden_channels, seq_len]
+        if self.use_transformer:
+            return self.forward_transformer(x, y)
+        else:
+            return self.forward_lstm(x, y)
+
+    def forward_transformer(self, x, y=None):
+        # x [batch_size, hidden_channels, seq_len]
+        if self.enable_conv:
+            x = self.conv1d_pre(x)
+        x = x.permute(2, 0, 1)  # Transformer encoder expects [seq_len, batch_size, features]
+
+        expressions = self.transformer_encoder(x)
+        
+        expressions = expressions.permute(1, 0, 2)  # [batch_size, features, seq_len]
+        if self.enable_dropout:
+            expressions = self.dropout(expressions)
+        expressions = self.fc1(expressions)
+        expressions = self.active(expressions)
+        if self.enable_dropout:
+            expressions = self.dropout(expressions)
+        expressions = self.fc2(expressions)
+
+        expressions = expressions.transpose(1, 2) # [batch_size, seq_len, features]
+        if self.enable_conv:
+            expressions = self.conv1d_post(expressions)
+
+        return expressions 
+
+    def forward_lstm(self, x, y=None):
+        # x [batch_size, hidden_channels, seq_len]
+        if self.enable_conv:
+            x = self.conv1d_pre(x)
+        x = x.transpose(1, 2)
+        # x [batch_size, seq_len, hidden_channels]
+        expressions = None
+        expressions, _ = self.lstm(x)
+        if self.enable_dropout:
+            expressions = self.dropout(expressions)
+        expressions = self.fc1(expressions)
+        expressions = self.active(expressions)
+        if self.enable_dropout:
+            expressions = self.dropout(expressions)
+        expressions = self.fc2(expressions)
+
+        expressions = expressions.transpose(1, 2)
+        if self.enable_conv:
+            expressions = self.conv1d_post(expressions)
+        return expressions
+    
+    def init_weights(self):
+        # 初始化权重
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight.data)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias.data, 0)
+            elif isinstance(m, nn.LSTM):
+                for name, param in m.named_parameters():
+                    if 'weight_ih' in name:
+                        nn.init.xavier_uniform_(param.data)
+                    elif 'weight_hh' in name:
+                        nn.init.orthogonal_(param.data)
+                    elif 'bias' in name:
+                        nn.init.constant_(param.data, 0)
+            elif isinstance(m, nn.BatchNorm1d):
+                nn.init.constant_(m.weight.data, 1)
+                nn.init.constant_(m.bias.data, 0)
+            elif isinstance(m, nn.Conv1d):
+                nn.init.xavier_uniform_(m.weight.data)
+                nn.init.constant_(m.bias.data, 0)
+            elif isinstance(m, nn.TransformerEncoderLayer):
+                for name, param in m.named_parameters():
+                    if 'weight' in name:
+                        if param.dim() == 1:
+                            nn.init.normal_(param.data)
+                        else:
+                            nn.init.xavier_uniform_(param.data)
+                    elif 'bias' in name:
+                        nn.init.constant_(param.data, 0)
+            elif isinstance(m, nn.TransformerEncoder):
+                for param in m.parameters():
+                    if param.dim() > 1:
+                        nn.init.xavier_uniform_(param.data)
+                    else:
+                        nn.init.constant_(param.data, 0)
+

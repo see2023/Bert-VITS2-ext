@@ -1,0 +1,55 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: WebUI",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": [
+                "--config_dir",
+                "${workspaceFolder}/configs/config.json",
+                "--debug"
+            ],
+            "justMyCode": false
+        },
+        {
+            "name": "Train: Init",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": [
+                "-m",
+                "OUTPUT_MODEL",
+                "--config",
+                "${workspaceFolder}/configs/config.json",
+            ],
+            "justMyCode": false
+        },
+        {
+            "name": "Train: Visemes",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": [
+                "-m",
+                "OUTPUT_MODEL",
+                "--config",
+                "${workspaceFolder}/configs/config.json",
+                "--visemes",
+            ],
+            "justMyCode": false
+        },
+        {
+            "name": "prepare: Visemes",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        }
+    ]
+}

@@ -22,12 +22,14 @@ from data_utils import (
     TextAudioSpeakerLoader,
     TextAudioSpeakerCollate,
     DistributedBucketSampler,
+    AudioVisemesLoader,
 )
 from models import (
     SynthesizerTrn,
     MultiPeriodDiscriminator,
     DurationDiscriminator,
     WavLMDiscriminator,
+    VisemesNet,
 )
 from losses import (
     generator_loss,
@@ -50,6 +52,85 @@ torch.backends.cuda.enable_mem_efficient_sdp(
     True
 )  # Not available if torch version is lower than 2.0
 global_step = 0
+global_visemes_step = 0
+
+def run_only_visemes(hps):
+    # 使用最简单的单机模式，仅训练隐变量z到表情(visemes)的全连接 VisemesFCNet 的参数
+    global global_visemes_step
+    torch.manual_seed(hps.train.seed)
+    torch.cuda.set_device(0)
+    train_dataset = AudioVisemesLoader(hps.data.training_visemes_files, hps.data)
+    train_loader = DataLoader(train_dataset, num_workers=0, shuffle=False, pin_memory=True,
+                              batch_size=1, drop_last=True)
+    eval_dataset = AudioVisemesLoader(hps.data.validation_visemes_files, hps.data)
+    eval_loader = DataLoader(eval_dataset, num_workers=0, shuffle=False,
+                             batch_size=1, pin_memory=True,
+                             drop_last=False)
+    net_v = VisemesNet(hps.model.hidden_channels).cuda()
+    latest_model_path = utils.latest_checkpoint_path(hps.model_dir, "V_*.pth")
+    if latest_model_path is not None:
+        _, optim_d, _, epoch_str = utils.load_checkpoint(latest_model_path, net_v, None, skip_optimizer=False)
+    else :
+        epoch_str = 1
+        global_visemes_step = 0
+        net_v.init_weights()
+    optim_v = torch.optim.AdamW(
+        net_v.parameters(),
+        hps.train.learning_rate,
+        betas=hps.train.betas,
+        eps=hps.train.eps)
+    optim_v.param_groups[0]['initial_lr'] = hps.train.learning_rate
+    scheduler_v = torch.optim.lr_scheduler.ExponentialLR(optim_v, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2, )
+    scaler = GradScaler(enabled=hps.train.bf16_run)
+    for epoch in range(epoch_str, hps.train.epochs + 1):
+        train_visemes_only(epoch, hps, net_v, train_loader, optim_v, scaler)
+        scheduler_v.step()
+        if epoch % hps.train.eval_interval == 0:
+            eval_visemes_only(epoch, hps, net_v, eval_loader)
+            utils.save_checkpoint(net_v, optim_v,hps.train.learning_rate , epoch, os.path.join(hps.model_dir, "V_{}.pth".format(epoch)))
+
+def train_visemes_only(epoch, hps, net_v, train_loader, optim_v, scaler):
+    for batch_idx, (spec, visemes) in tqdm(enumerate(train_loader)):
+        spec, visemes = spec.cuda(), visemes.cuda()
+        with autocast(enabled=hps.train.bf16_run):
+            # 通过VisemesNet从z生成visemes_hat，和均方差
+            visemes_hat = net_v(spec)
+            visemes_hat_mse = get_visemes_mse(visemes, visemes_hat)
+            optim_v.zero_grad()
+            scaler.scale(visemes_hat_mse).backward()
+            scaler.unscale_(optim_v)
+            grad_norm_v = commons.clip_grad_value_(net_v.parameters(), None)
+            scaler.step(optim_v)
+            global global_visemes_step
+            global_visemes_step += 1
+            if batch_idx % hps.train.log_interval == 0:
+                print('Train Epoch: {} [{}/{} ({:.0f}%)]\tvisemes_hat_mse: {:.6f}\tgrad_norm_v: {:.6f}'.format(
+                    epoch, batch_idx * len(spec), len(train_loader.dataset),
+                    100. * batch_idx / len(train_loader), visemes_hat_mse.item(), grad_norm_v))
+
+def get_visemes_mse(visemes, visemes_hat):
+    if visemes.shape[-1] != visemes_hat.shape[-1]: # 如果y和x的最低维度不一样
+        visemes_hat = F.interpolate(visemes_hat, size=visemes.shape[-1], mode='linear', align_corners=True) # 对x进行线性插值，使其形状与y一致
+    visemes_hat_mse = torch.mean(torch.pow(visemes_hat - visemes, 2))
+    return visemes_hat_mse
+
+
+def eval_visemes_only(epoch, hps, net_v, eval_loader):
+    net_v.eval()
+    with torch.no_grad():
+        visemes_hat_mse_sum = 0.0
+        for batch_idx, (spec, visemes) in tqdm(enumerate(eval_loader)):
+            spec, visemes = spec.cuda(), visemes.cuda()
+            # 通过VisemesFCNet从z生成visemes_hat，和均方差
+            visemes_hat = net_v(spec)
+            visemes_hat_mse = get_visemes_mse(visemes, visemes_hat)
+            visemes_hat_mse_sum += visemes_hat_mse
+            # print('visemes_hat_mse', visemes_hat_mse)
+            break
+        visemes_hat_mse_avg = visemes_hat_mse_sum / (batch_idx + 1)
+        print('------------------ eval visemes_hat_mse_avg: ', visemes_hat_mse_avg)
+    net_v.train()
+
 
 
 def run():
@@ -100,12 +181,16 @@ def run():
         help="数据集文件夹路径，请注意，数据不再默认放在/logs文件夹下。如果需要用命令行配置，请声明相对于根目录的路径",
         default=config.dataset_path,
     )
+    parser.add_argument('--visemes', dest='visemes', action="store_true", default=False, help="train visemes only, lock the encoder and decoder")
+
     args = parser.parse_args()
     model_dir = os.path.join(args.model, config.train_ms_config.model)
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
     hps = utils.get_hparams_from_file(args.config)
     hps.model_dir = model_dir
+    if args.visemes:
+        run_only_visemes(hps)
     # 比较路径是否相同
     if os.path.realpath(args.config) != os.path.realpath(
         config.train_ms_config.config_path

@@ -161,9 +161,13 @@ def summarize(
 
 
 def latest_checkpoint_path(dir_path, regex="G_*.pth"):
-    f_list = glob.glob(os.path.join(dir_path, regex))
-    f_list.sort(key=lambda f: int("".join(filter(str.isdigit, f))))
-    x = f_list[-1]
+    x = None
+    try:
+        f_list = glob.glob(os.path.join(dir_path, regex))
+        f_list.sort(key=lambda f: int("".join(filter(str.isdigit, f))))
+        x = f_list[-1]
+    except Exception as e:
+        logger.warn(e)
     return x
 
 
@@ -265,6 +269,7 @@ def get_hparams(init=True):
     config = json.loads(data)
     hparams = HParams(**config)
     hparams.model_dir = model_dir
+    hparams.visemes = args.visemes
     return hparams
 
 

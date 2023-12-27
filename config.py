@@ -149,6 +149,7 @@ class Webui_config:
         self,
         device: str,
         model: str,
+        v_model: str,
         config_path: str,
         language_identification_library: str,
         port: int = 7860,
@@ -157,6 +158,7 @@ class Webui_config:
     ):
         self.device: str = device
         self.model: str = model  # 端口号
+        self.v_model: str = v_model 
         self.config_path: str = config_path  # 是否公开部署，对外网开放
         self.port: int = port  # 是否开启debug模式
         self.share: bool = share  # 模型路径

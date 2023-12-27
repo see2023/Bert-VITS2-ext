@@ -4,6 +4,7 @@ import torch
 import torch.utils.data
 from tqdm import tqdm
 import numpy as np
+import torchaudio
 from tools.log import logger
 import commons
 from mel_processing import spectrogram_torch, mel_spectrogram_torch
@@ -97,6 +98,9 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
         return (phones, spec, wav, sid, tone, language, bert, ja_bert, en_bert)
 
     def get_audio(self, filename):
+        audio_norm, sampling_rate = torchaudio.load(filename, frame_offset=0, num_frames=-1, normalize=True, channels_first=True)
+        '''
+        # from https://github.com/YYuX-1145/Bert-VITS2-Integration-package
         audio, sampling_rate = load_wav_to_torch(filename)
         if sampling_rate != self.sampling_rate:
             raise ValueError(
@@ -106,6 +110,7 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
             )
         audio_norm = audio / self.max_wav_value
         audio_norm = audio_norm.unsqueeze(0)
+        '''
         spec_filename = filename.replace(".wav", ".spec.pt")
         if self.use_mel_spec_posterior:
             spec_filename = spec_filename.replace(".spec.pt", ".mel.pt")
@@ -403,3 +408,65 @@ class DistributedBucketSampler(torch.utils.data.distributed.DistributedSampler):
 
     def __len__(self):
         return self.num_samples // self.batch_size
+
+
+class AudioVisemesLoader(torch.utils.data.Dataset):
+    """
+        loads audio, visemes  torch variable pairs from visemes list file .
+        file is like: 
+            ./records/date_time.z.npy|./records/date_time.npy
+    """
+    
+    def __init__(self, audio_visemes_list_file, hparams):
+        self.audio_visemes_list_items = load_filepaths_and_text(audio_visemes_list_file)
+        print('audio_visemes_list_items: ', len(self.audio_visemes_list_items))
+        random.seed(1234)
+        random.shuffle(self.audio_visemes_list_items)
+        self.max_visemes_len = 1200
+        self.min_visemes_len = 1190
+        self._filter()
+
+
+    def _filter(self):
+        # check if the file exists, and can parse as torch tensor
+        audio_visemes_list_items_new = []
+        for audio_file, visemes_file in self.audio_visemes_list_items:
+            if os.path.exists(audio_file) and os.path.exists(visemes_file):
+                # check using torch.load
+                try:
+                    audio = torch.load(audio_file)
+                    visemes = np.load(visemes_file)
+                    if visemes.shape[0] < self.min_visemes_len:
+                        print('drop this data: --------- visemes.shape[0] < self.min_visemes_len: ', visemes.shape[0], visemes_file)
+                        continue
+                    audio_visemes_list_items_new.append([audio_file, visemes_file])
+                except Exception as e:
+                    print('error: ', audio_file, visemes_file)
+                    print(e)
+        self.audio_visemes_list_items = audio_visemes_list_items_new
+        print('audio_visemes_list_items after filter: ', len(self.audio_visemes_list_items))
+
+    def __getitem__(self, index):
+        # read these two torch.tensor
+        audio_file, visemes_file = self.audio_visemes_list_items[index]
+        audio = torch.load(audio_file).squeeze(0).detach()
+        visemes = np.load(visemes_file)
+        visemes = torch.from_numpy(visemes)
+        if visemes.shape[0] > self.max_visemes_len:
+            # cut the extra part
+            # print('__getitem__ 1  cut visemes from ',  visemes.shape[0], ' to ', self.max_visemes_len, 'file: ', visemes_file)
+            visemes = visemes[:self.max_visemes_len]
+        elif visemes.shape[0] < self.max_visemes_len:
+            # padding to max_visemes_len with last frame
+            # print('__getitem__ 2 padding visemes from ', visemes.shape[0], ' to ', self.max_visemes_len, 'file: ', visemes_file)
+            last_frame = visemes[-1]
+            visemes = np.concatenate([visemes, np.tile(last_frame, (self.max_visemes_len - visemes.shape[0], 1))], axis=0)
+            visemes = torch.from_numpy(visemes)
+
+        visemes = visemes.transpose(0, 1)
+        # print('__getitem__ 3 audio.shape: ', audio.shape, 'visemes.shape: ', visemes.shape,'file: ', visemes_file)
+        return audio, visemes
+
+    def __len__(self):
+        return len(self.audio_visemes_list_items)
+
