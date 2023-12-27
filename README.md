@@ -1,6 +1,6 @@
 # 简介
 * 本项目的目的是拓展[Bert-VITS2](https://github.com/fishaudio/Bert-VITS2)的使用边界，比如TTS同步产生脸部表情数据。
-* 效果参见
+* 效果参见 [bilibili](https://www.bilibili.com/video/BV1s64y1H7ij/)
 
 
 # TTS
