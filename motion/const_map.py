@@ -75,6 +75,9 @@ import numpy as np
 
 ARKIT_COUNT = 61
 VALID_ARKIT_COUNT = 52
+ARKIT_FPS = 60
+Z_FPS = 86.1328125
+
 # 合法值在 0-1 之间的下标(序号-1), 名字中没有left right up down的表情
 g_positive_index = [14, 17, 18, 19, 20, 46, 51]
 g_max_value_groups = [
@@ -94,7 +97,7 @@ g_max_value_groups = [
 ]
 
 
-def map_arkit_values(bs_weight_arkit, mirror=True):
+def map_arkit_values(bs_weight_arkit, mirror=False):
     # input: n * 116 float array
     weights = np.zeros((bs_weight_arkit.shape[0], ARKIT_COUNT))
     for r in range(bs_weight_arkit.shape[0]):

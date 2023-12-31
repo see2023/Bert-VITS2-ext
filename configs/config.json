@@ -1,7 +1,7 @@
 {
   "train": {
     "log_interval": 20,
-    "eval_interval": 100,
+    "eval_interval": 1,
     "seed": 42,
     "epochs": 1000,
     "learning_rate": 0.0002,

@@ -11,6 +11,7 @@ from mel_processing import spectrogram_torch, mel_spectrogram_torch
 from utils import load_wav_to_torch, load_filepaths_and_text
 from text import cleaned_text_to_sequence
 from config import config
+import motion.const_map as const_map
 
 """Multi speaker version"""
 
@@ -422,8 +423,8 @@ class AudioVisemesLoader(torch.utils.data.Dataset):
         print('audio_visemes_list_items: ', len(self.audio_visemes_list_items))
         random.seed(1234)
         random.shuffle(self.audio_visemes_list_items)
-        self.max_visemes_len = 1200
-        self.min_visemes_len = 1190
+        self.max_visemes_len = 1210
+        self.min_visemes_len = 1180
         self._filter()
 
 
@@ -449,23 +450,45 @@ class AudioVisemesLoader(torch.utils.data.Dataset):
     def __getitem__(self, index):
         # read these two torch.tensor
         audio_file, visemes_file = self.audio_visemes_list_items[index]
-        audio = torch.load(audio_file).squeeze(0).detach()
+        audio_z = torch.load(audio_file).squeeze(0).detach()
+        # [192, seq_len(1722)]
+
         visemes = np.load(visemes_file)
         visemes = torch.from_numpy(visemes)
-        if visemes.shape[0] > self.max_visemes_len:
+        #[seq_len(1194), 61]
+        visemes = visemes.transpose(0, 1)
+        #[61, seq_len(1194)]
+        if visemes.shape[1] > self.max_visemes_len:
             # cut the extra part
             # print('__getitem__ 1  cut visemes from ',  visemes.shape[0], ' to ', self.max_visemes_len, 'file: ', visemes_file)
-            visemes = visemes[:self.max_visemes_len]
-        elif visemes.shape[0] < self.max_visemes_len:
+            visemes = visemes[:, :self.max_visemes_len]
+        elif visemes.shape[1] < self.max_visemes_len:
             # padding to max_visemes_len with last frame
             # print('__getitem__ 2 padding visemes from ', visemes.shape[0], ' to ', self.max_visemes_len, 'file: ', visemes_file)
-            last_frame = visemes[-1]
-            visemes = np.concatenate([visemes, np.tile(last_frame, (self.max_visemes_len - visemes.shape[0], 1))], axis=0)
-            visemes = torch.from_numpy(visemes)
+            # last_frame = visemes[-1]
+            # visemes = np.concatenate([visemes, np.tile(last_frame, (self.max_visemes_len - visemes.shape[0], 1))], axis=0)
+            # visemes = torch.from_numpy(visemes)
+            pass
 
-        visemes = visemes.transpose(0, 1)
+        visemes_offset = 0.02 # 将visemes延迟n s
+        visemes_offset_frames = int(visemes_offset * const_map.ARKIT_FPS)
+        visemes = visemes[:, visemes_offset_frames:]
+
+        audio_z_offset = 0.0
+        audio_z_offset_frames = int(audio_z_offset * const_map.Z_FPS)
+        audio_z = audio_z[:, audio_z_offset_frames:]
+
+        # 获取二者的时长，将过长的一方多的部分丢弃
+        visemes_duration = visemes.shape[1] / const_map.ARKIT_FPS
+        audio_z_duration = audio_z.shape[1] / const_map.Z_FPS
+        if visemes_duration > audio_z_duration:
+            visemes = visemes[:, :int(audio_z_duration * const_map.ARKIT_FPS)]
+        elif visemes_duration < audio_z_duration:
+            audio_z = audio_z[:, :int(visemes_duration * const_map.Z_FPS)]
+
+
         # print('__getitem__ 3 audio.shape: ', audio.shape, 'visemes.shape: ', visemes.shape,'file: ', visemes_file)
-        return audio, visemes
+        return audio_z, visemes
 
     def __len__(self):
         return len(self.audio_visemes_list_items)

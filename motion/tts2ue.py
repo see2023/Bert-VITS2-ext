@@ -104,7 +104,9 @@ if __name__ == '__main__':
         exit(1)
     bs_npy_file = sys.argv[1]
     wav_file = sys.argv[2]
-    fps = sys.argv[3]
+    fps = 86.1328125
+    if sys.argv.__len__() > 3:
+        fps = sys.argv[3]
     # fps to float
     fps = float(fps)
     if not os.path.exists(bs_npy_file):

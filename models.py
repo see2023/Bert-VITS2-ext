@@ -1082,21 +1082,25 @@ class SynthesizerTrn(nn.Module):
 
 class VisemesNet(nn.Module):
     def active(self, x):
-        #  active_fun: 0: null, 1: tanh, 2: relu
+        #  active_fun: 0: null, 1: tanh, 2: relu, 3: LeakyReLU
         if self.active_fun == 1:
             return torch.tanh(x)
         elif self.active_fun == 2:
             return torch.relu(x)
+        elif self.active_fun == 3:
+            return self.leakyReLU(x)
         else:
             return x
 
-    def __init__(self, hidden_channels, lstm_bidirectional=True, active_fun = 2, enable_conv=True, 
+    def __init__(self, hidden_channels, lstm_bidirectional=True, active_fun = 3, enable_conv=True, 
                  use_transformer = False, enable_dropout=True):
         super(VisemesNet, self).__init__()
         self.lstm_bidirectional = lstm_bidirectional
         self.lstm_directions = 2 if lstm_bidirectional else 1
         self.use_transformer = use_transformer
         self.enable_dropout = enable_dropout
+        if active_fun == 3:
+            self.leakyReLU = nn.LeakyReLU(negative_slope=0.01)
         if use_transformer:
             num_heads=8
             num_layers=3
@@ -1140,20 +1144,20 @@ class VisemesNet(nn.Module):
         # x [batch_size, hidden_channels, seq_len]
         if self.enable_conv:
             x = self.conv1d_pre(x)
-        x = x.permute(2, 0, 1)  # Transformer encoder expects [seq_len, batch_size, features]
+        # batch_first: True (batch, seq, feature);  False (seq, batch, feature).
+        x = x.transpose(1, 2)
 
         expressions = self.transformer_encoder(x)
         
-        expressions = expressions.permute(1, 0, 2)  # [batch_size, features, seq_len]
         if self.enable_dropout:
             expressions = self.dropout(expressions)
         expressions = self.fc1(expressions)
-        expressions = self.active(expressions)
+        # expressions = self.active(expressions)
         if self.enable_dropout:
             expressions = self.dropout(expressions)
         expressions = self.fc2(expressions)
 
-        expressions = expressions.transpose(1, 2) # [batch_size, seq_len, features]
+        expressions = expressions.transpose(1, 2)
         if self.enable_conv:
             expressions = self.conv1d_post(expressions)
 

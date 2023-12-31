@@ -16,6 +16,7 @@ import datetime
 import gc
 
 logging.getLogger("numba").setLevel(logging.WARNING)
+logger = logging.getLogger(__name__)
 import commons
 import utils
 from data_utils import (
@@ -128,7 +129,9 @@ def eval_visemes_only(epoch, hps, net_v, eval_loader):
             # print('visemes_hat_mse', visemes_hat_mse)
             break
         visemes_hat_mse_avg = visemes_hat_mse_sum / (batch_idx + 1)
-        print('------------------ eval visemes_hat_mse_avg: ', visemes_hat_mse_avg)
+        log_str = '------------------ eval epoch: {} visemes_hat_mse_avg: {:.6f}'.format(epoch, visemes_hat_mse_avg)
+        print(log_str)
+        logger.warning(log_str)
     net_v.train()
 
 
@@ -189,6 +192,7 @@ def run():
         os.makedirs(model_dir)
     hps = utils.get_hparams_from_file(args.config)
     hps.model_dir = model_dir
+    set_logger(hps)
     if args.visemes:
         run_only_visemes(hps)
     # 比较路径是否相同
@@ -921,5 +925,24 @@ def evaluate(hps, generator, eval_loader, writer_eval):
     generator.train()
 
 
+def set_logger(hps):
+    # set logger to file and stdout, using hps.model_dir as logging path
+    log_format = logging.Formatter(
+        "%(asctime)s %(levelname)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    # train.datetime.log
+    fh = logging.FileHandler(
+        os.path.join(
+            hps.model_dir, "train.{}.log".format(datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+        ),
+        mode="a",
+    )
+    fh.setLevel(logging.INFO)
+    fh.setFormatter(log_format)
+    logger.addHandler(fh)
+
+
+
 if __name__ == "__main__":
+
     run()
