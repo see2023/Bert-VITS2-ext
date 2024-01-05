@@ -424,7 +424,7 @@ class AudioVisemesLoader(torch.utils.data.Dataset):
         random.seed(1234)
         random.shuffle(self.audio_visemes_list_items)
         self.max_visemes_len = 1210
-        self.min_visemes_len = 1180
+        self.min_visemes_len = 1190
         self._filter()
 
 
@@ -470,7 +470,7 @@ class AudioVisemesLoader(torch.utils.data.Dataset):
             # visemes = torch.from_numpy(visemes)
             pass
 
-        visemes_offset = 0.02 # 将visemes延迟n s
+        visemes_offset = 0.08 # 将visemes延迟n s
         visemes_offset_frames = int(visemes_offset * const_map.ARKIT_FPS)
         visemes = visemes[:, visemes_offset_frames:]
 

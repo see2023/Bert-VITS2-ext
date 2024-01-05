@@ -32,7 +32,7 @@ def play_wav_binary(data):
 
 
 # fps: frames per second
-def send_frames(udp_sender, visemes, fps = 86.1328125, delay_ms = 500):
+def send_frames(udp_sender, visemes, fps = 86.1328125, delay_ms = 400):
     import time
     # get current time in ms
     start_time = int(time.time() * 1000) + delay_ms
@@ -59,6 +59,7 @@ def start_send_frames(udp_sender, visemes, fps):
     t = threading.Thread(target=send_frames, args=(udp_sender, visemes, fps))
     t.daemon = True
     t.start()
+    return t
 
 # 延迟n毫秒，启动新线程，执行 extra.bat
 def start_extra(extra_bat, delay_ms):
@@ -76,6 +77,7 @@ def start_extra(extra_bat, delay_ms):
     t = threading.Thread(target=os.system, args=(extra_bat,))
     t.daemon = True
     t.start()
+    return t
 
 
 def play_and_send(udp_sender, bs_npy_file, wav_file, fps):
@@ -89,10 +91,14 @@ def play_and_send(udp_sender, bs_npy_file, wav_file, fps):
     print('reading wav', wav_file)
     with open(wav_file, 'rb') as f:
         data = f.read()
-        start_extra('extra.bat', 500)
-        start_send_frames(udp_sender, bs_arkit, fps)
+        t1 = start_extra('extra.bat', 500)
+        t2 = start_send_frames(udp_sender, bs_arkit, fps)
 
         play_wav_binary(data)
+
+        #wait t1 t2
+        t1.join()
+        t2.join()
 
 
 

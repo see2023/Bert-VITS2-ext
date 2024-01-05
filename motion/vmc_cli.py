@@ -197,11 +197,11 @@ t_pose_bone_position_map = {
 
 g_bone_factor_map = {
     Bone.HIPS: 1,
-    Bone.LEFT_UPPER_LEG: 1,
-    Bone.RIGHT_UPPER_LEG: 1,
+    Bone.LEFT_UPPER_LEG: 0.2,
+    Bone.RIGHT_UPPER_LEG: 0.2,
     Bone.SPINE: 1,
-    Bone.LEFT_LOWER_LEG: 1,
-    Bone.RIGHT_LOWER_LEG: 1,
+    Bone.LEFT_LOWER_LEG: 0.2,
+    Bone.RIGHT_LOWER_LEG: 0.2,
     Bone.CHEST: 1,
     Bone.LEFT_FOOT: 1,
     Bone.RIGHT_FOOT: 1,
@@ -364,11 +364,16 @@ def send_osc_data(sender, cur_positions, last_positions, is_first_frame = False)
     # data_list (22, 3)
     # print('data_list', data_list)
 
-    y_off_set = -0.99
+    y_off_set = -0.17
 
     root_pos = CoordinateVector.identity()
     if not is_first_frame:
-        root_pos = CoordinateVector(cur_positions[0][0]-global_init_postion[0][0], cur_positions[0][1]-global_init_postion[0][1], cur_positions[0][2]-global_init_postion[0][2])
+        scale = 0.4
+        root_pos = CoordinateVector(
+            scale * (cur_positions[0][0]-global_init_postion[0][0]), 
+            scale*(cur_positions[0][1]-global_init_postion[0][1]) + y_off_set,
+            scale*( cur_positions[0][2]-global_init_postion[0][2])
+        )
 
     messages = (
         Message(*root_transform(
@@ -404,8 +409,18 @@ def send_montions(file_paths):
     # 最后一维的第一个元素取反，坐标系单轴镜像
     # bs[:, :, :, 0] *= -1
     print(bs.shape)
-    fps = 30
     # (1, 192, 22, 3)
+    # 在 axis=1上线性插值成两倍数据 (1, 384, 22, 3)
+    new_bs = np.zeros((bs.shape[0], bs.shape[1]*2, bs.shape[2], bs.shape[3]))
+    for i in range(0, bs.shape[0]):
+        for j in range(0, bs.shape[2]):
+            for k in range(0, bs.shape[3]):
+                line_data = bs[i, :, j, k]
+                line_data = np.interp(np.arange(0, len(line_data), 0.5), np.arange(0, len(line_data)), line_data)
+                new_bs[i, :, j, k] = line_data
+    bs = new_bs
+    print(bs.shape)
+    fps = 30
 
     # 将上述时序数据平滑 0-t(192)
     if True:

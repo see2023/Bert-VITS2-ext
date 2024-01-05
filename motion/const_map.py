@@ -116,8 +116,8 @@ def map_arkit_values(bs_weight_arkit, mirror=False):
 
             # weights[r, i] = weights[r, i] * 2
 
-            jaw_scale = 1
-            mouth_scale = 1
+            jaw_scale = 1#.1
+            mouth_scale = 1#.3
             head_scale = 0
             if i == 0:  # eyeBlinkLeft
                 weights[r, i] = weights[r, i] * 1

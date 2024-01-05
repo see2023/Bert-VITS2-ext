@@ -28,6 +28,8 @@
 * 同步采集语音和对应的Live Link输出的表情值，分别存入到records文件夹
   * 执行一下脚本采集，每次20秒
   * 音频默认为44100 Hz
+  * 音频、表情的采集可能有偏移
+  * 可对比验证集的损失找到同一数据源的最佳偏移位置
 ```
 python ./motion/record.py
 ```
@@ -66,8 +68,15 @@ python ./motion/tts2ue.py tmp.npy tmp.wav 86.1328125
 
 # 声音到表情
 * 利用后验编码器，把声音转换成z，然后再把z转成表情
+  * 音频需转成44100hz的wav文件，并只保留一个通道(ffmpeg)
 ```
-python  ./motion/wav_to_visemes.py wav_file
+# 音频截取转换
+ffmpeg -i input_file -ss 00:00:00 -t 00:00:10 -ar 44100 -f wav test.wav
+
+# 保留通道1
+ffmpeg -i test.wav -map_channel 0.0.0 output.wav
+
+python  ./motion/wav_to_visemes.py output.wav
 ```
 
 
