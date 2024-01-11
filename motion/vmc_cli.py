@@ -4,6 +4,7 @@
 
 """Basic VMC protocol example."""
 import sys
+from typing import Any
 import numpy as np
 from numpy import cross, dot
 from numpy.linalg import norm
@@ -197,27 +198,27 @@ t_pose_bone_position_map = {
 
 g_bone_factor_map = {
     Bone.HIPS: 1,
-    Bone.LEFT_UPPER_LEG: 0.2,
-    Bone.RIGHT_UPPER_LEG: 0.2,
-    Bone.SPINE: 1,
-    Bone.LEFT_LOWER_LEG: 0.2,
-    Bone.RIGHT_LOWER_LEG: 0.2,
-    Bone.CHEST: 1,
-    Bone.LEFT_FOOT: 1,
-    Bone.RIGHT_FOOT: 1,
-    Bone.UPPER_CHEST: 0.6,
+    Bone.LEFT_UPPER_LEG: 0.1,
+    Bone.RIGHT_UPPER_LEG: 0.1,
+    Bone.SPINE: 0.2,
+    Bone.LEFT_LOWER_LEG: 0.5,
+    Bone.RIGHT_LOWER_LEG: 0.5,
+    Bone.CHEST: 0.8,
+    Bone.LEFT_FOOT: 0.8,
+    Bone.RIGHT_FOOT: 0.8,
+    Bone.UPPER_CHEST: 0.8,
     Bone.LEFT_TOES: 1,
     Bone.RIGHT_TOES: 1,
     Bone.NECK: 1,
     Bone.LEFT_SHOULDER: 1,
     Bone.RIGHT_SHOULDER: 1,
     Bone.HEAD: 1,
-    Bone.LEFT_UPPER_ARM: 0.7,
-    Bone.RIGHT_UPPER_ARM: 0.7,
-    Bone.LEFT_LOWER_ARM: 1,
-    Bone.RIGHT_LOWER_ARM: 1,
-    Bone.LEFT_HAND: 0.7,
-    Bone.RIGHT_HAND: 0.7,
+    Bone.LEFT_UPPER_ARM: 0.9,
+    Bone.RIGHT_UPPER_ARM: 0.9,
+    Bone.LEFT_LOWER_ARM: 0.9,
+    Bone.RIGHT_LOWER_ARM: 0.9,
+    Bone.LEFT_HAND: 0.9,
+    Bone.RIGHT_HAND: 0.9,
 }
 
 # 当SMPL_PARRENTS[i] 1= -1时，计算相对位置
@@ -236,8 +237,7 @@ g_humanml3d_t_pose_positions = np.array([
 ])
 
 
-
-def calculate_rotation_quaternion(line1, line2, bone, factor=0.5):
+def calculate_rotation_quaternion(line1, line2, bone=None, factor=1):
 
     # 保证line1和line2是单位向量
     line1 = line1 / norm(line1)
@@ -274,10 +274,39 @@ def calculate_rotation_quaternion(line1, line2, bone, factor=0.5):
 
     return q
 
+# 扩展 Quaternion 类，增加共轭、norm、逆，旋转的计算
+class MyQuaternion(Quaternion):
+    def __init__(self, x, y, z, w):
+        super().__init__(x, y, z, w)
+    
+    # 乘常数
+    def multiply(self, v):
+        return MyQuaternion(self.x * v, self.y * v, self.z * v, self.w * v)
+
+    # 四元数的共轭（代表逆旋转）
+    def quaternion_conjugate(self):
+        return MyQuaternion(-self.x, -self.y, -self.z, self.w)
+
+    # 模
+    def norm(self):
+        return (self.w**2 + self.x**2 + self.y**2 + self.z**2)**0.5
+
+    # 四元数的逆
+    def quaternion_inverse(self):
+        return self.quaternion_conjugate().multiply( 1 / self.norm()**2 )
+
+    # 计算line2到line3的四元数
+    # self: line1 --> line2
+    # q13: line1 --> line3
+    def rotation_to(self, q13):
+        q12_inv = self.quaternion_inverse()
+        return q12_inv.multiply_by(q13)
+
+
 # 计算每个位置的连线到下一段联系的转动角度的四元数
 def postions_to_quaternions(positions, last_positions, bones, control_by_parrent = True):
     quaternions = []
-    quaternions.append(Quaternion.identity())
+    quaternions.append(MyQuaternion.identity())
     for i in range(1, len(positions)):
         # parrent_index = SMPL_PARRENTS[i]
         # # 上一时刻的连线
@@ -287,9 +316,15 @@ def postions_to_quaternions(positions, last_positions, bones, control_by_parrent
 
         # 计算连线的转动角度的四元数
         quat = calculate_rotation_quaternion(last_positions[i], positions[i], bones[i])
-        quaternions.append(Quaternion(*quat))
-    # for i in range(0, len(quaternions)):
-    #     print('quaternions before change by parent',i, quaternions[i])
+        quaternions.append(MyQuaternion(*quat))
+
+    # 从叶子节点开始，如果存在父节点，减去父节点的旋转 calculate_relative_rotation
+    for i in range(len(quaternions)-1, 0, -1):
+        parrent_index = SMPL_PARRENTS[i]
+        if parrent_index == -1:
+            continue
+        quaternions[i] = quaternions[parrent_index].rotation_to(quaternions[i])
+    
     if control_by_parrent:
         # 按数组 humanml3d_kinematic_tree 列出的父子关系，将子节点根据位置计算出的旋转赋值给父节点(从每个数组的第三个开始，最后一个赋值为0)
         for bone_list in humanml3d_kinematic_tree:
@@ -301,8 +336,6 @@ def postions_to_quaternions(positions, last_positions, bones, control_by_parrent
             quaternions[bone_list[-1]] = Quaternion.identity()
         # reset head rotation
         quaternions[15] = Quaternion.identity()
-    # for i in range(0, len(quaternions)):
-    #     print('quaternions after changed by parent: ',i, quaternions[i])
 
     return quaternions
 
@@ -319,7 +352,8 @@ def gen_bone_message_tuple(bone_tuple, positions, last_positions, init_positions
                 Message( *bone_transform(
                     bone, 
                     # CoordinateVector.identity(), 
-                    CoordinateVector(position[0], position[1], position[2]),
+                    # CoordinateVector(position[0], position[1], position[2]),
+                    CoordinateVector(t_pose_bone_position_map[bone][0], t_pose_bone_position_map[bone][1], t_pose_bone_position_map[bone][2]),
                     Quaternion.identity(),
                 )),
             )
@@ -399,7 +433,6 @@ def send_osc_data(sender, cur_positions, last_positions, is_first_frame = False)
                 Message(*time(Timestamp())),
     )
     sender.send(messages)
-
 
 
 def send_montions(file_paths):
