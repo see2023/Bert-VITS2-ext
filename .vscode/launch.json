@@ -50,6 +50,24 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": false
-        }
+        },
+        {
+            "name": "motion: VMC",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": [
+                "--a2p",
+                "a2p_rotations.npy",
+                "--positions_files",
+                "a2p_motions.npy",
+                "--do_linear_interpolation",
+                "False",
+                "--fps",
+                "30",
+            ],
+            "justMyCode": false
+        },
     ]
 }

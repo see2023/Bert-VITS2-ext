@@ -97,8 +97,9 @@ g_max_value_groups = [
 ]
 
 
-def map_arkit_values(bs_weight_arkit, mirror=False):
-    # input: n * 116 float array
+def map_arkit_values(bs_weight_arkit, add_blink, fps, mirror=False):
+    # input: n * 61 float array
+
     weights = np.zeros((bs_weight_arkit.shape[0], ARKIT_COUNT))
     for r in range(bs_weight_arkit.shape[0]):
         for i in range(VALID_ARKIT_COUNT):
@@ -152,4 +153,17 @@ def map_arkit_values(bs_weight_arkit, mirror=False):
 
         # jawOpen * 1.5, make <=1
         # weights[r, 17] = min(weights[r, 17] * 5, 1.0)
+    
+    if add_blink:
+        # add blink
+        total_seconds = bs_weight_arkit.shape[0] / fps
+        # 每隔5秒眨眼一次，开始时间随机，持续时间0.1秒
+        for i in range(0, int(total_seconds), 5):
+            start = np.random.randint(0, bs_weight_arkit.shape[0])
+            for r in range(start, start + int(0.1 * fps)):
+                if r >= bs_weight_arkit.shape[0]:
+                    break
+                # 不要一次全部眨眼，需要从0.2过渡到1
+                weights[r, 0] = 0.2 + (r - start) / (0.1 * fps) * 0.8
+                weights[r, 7] = 0.2 + (r - start) / (0.1 * fps) * 0.8
     return weights

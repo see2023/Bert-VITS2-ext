@@ -5,6 +5,10 @@ import io
 import wave
 import const_map
 
+delay_ms = 700
+extra_bat = 'extra.bat'
+add_blink = False
+
 def play_wav_binary(data):
     # 将二进制数据转换为文件对象
     f = io.BytesIO(data)
@@ -32,7 +36,7 @@ def play_wav_binary(data):
 
 
 # fps: frames per second
-def send_frames(udp_sender, visemes, fps = 86.1328125, delay_ms = 400):
+def send_frames(udp_sender, visemes, fps = 86.1328125):
     import time
     # get current time in ms
     start_time = int(time.time() * 1000) + delay_ms
@@ -83,15 +87,16 @@ def start_extra(extra_bat, delay_ms):
 def play_and_send(udp_sender, bs_npy_file, wav_file, fps):
     # read bs_value_1114_3_16.npy file
     bs = np.load(bs_npy_file, allow_pickle=True)
+    # bs: (1200, 61)
     print('bs.shape', bs.shape, 'fps', fps)
-    bs_arkit = const_map.map_arkit_values(bs)
+    bs_arkit = const_map.map_arkit_values(bs, add_blink, fps)
     print('remap done')
 
     # read file_path to binary buffer
     print('reading wav', wav_file)
     with open(wav_file, 'rb') as f:
         data = f.read()
-        t1 = start_extra('extra.bat', 500)
+        t1 = start_extra(extra_bat, 500)
         t2 = start_send_frames(udp_sender, bs_arkit, fps)
 
         play_wav_binary(data)
@@ -104,17 +109,30 @@ def play_and_send(udp_sender, bs_npy_file, wav_file, fps):
 
 import live_link
 import sys
+import argparse
 if __name__ == '__main__':
-    if sys.argv.__len__() < 3:
-        print('python tts2ue.py bs_npy_file wav_file fps(86.1328125)')
+    
+    parse = argparse.ArgumentParser()
+    # fps
+    parse.add_argument('--fps', type=float, default=86.1328125)
+    parse.add_argument('--bs_npy_file', type=str, default='')
+    parse.add_argument('--wav_file', type=str, default='')
+    parse.add_argument('--delay_ms', type=int, default=700)
+    parse.add_argument('--extra', type=str, default='extra.bat')
+    parse.add_argument('--add_blink', type=bool, default=True)
+
+    args = parse.parse_args()
+    fps = float(args.fps)
+    bs_npy_file = args.bs_npy_file
+    wav_file = args.wav_file
+    delay_ms = float(args.delay_ms)
+    extra_bat = args.extra
+    add_blink = args.add_blink
+
+    if bs_npy_file == '' or wav_file == '':
+        print('python tts2ue.py --bs_npy_file bs_npy_file.npy --wav_file wav_file.wav --fps 86.1328125 --delay_ms 700 --extra extra.bat --add_blink False')
         exit(1)
-    bs_npy_file = sys.argv[1]
-    wav_file = sys.argv[2]
-    fps = 86.1328125
-    if sys.argv.__len__() > 3:
-        fps = sys.argv[3]
-    # fps to float
-    fps = float(fps)
+
     if not os.path.exists(bs_npy_file):
         print('bs_npy_file not exists')
         exit(1)

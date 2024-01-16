@@ -4,6 +4,7 @@
 
 """Basic VMC protocol example."""
 import sys
+import os
 from typing import Any
 import numpy as np
 from numpy import cross, dot
@@ -28,6 +29,12 @@ from vmcp.protocol import (
     state,
     time
 )
+
+is_a2p = False
+a2p_rotations_files = None
+positions_files = None
+fps = 30
+do_linear_interpolation = False
 
 '''
 # bones:
@@ -134,7 +141,7 @@ g_humanml3d_bones = (
 )
 
 humanml3d_kinematic_tree = [
-    # [0, 3, 6, 9, 12, 15],  # body
+    [0, 3, 6, 9, 12, 15],  # body
     [9, 14, 17, 19, 21],  # right arm
     [9, 13, 16, 18, 20],  # left arm
     [0, 2, 5, 8, 11],  # right leg
@@ -201,18 +208,18 @@ g_bone_factor_map = {
     Bone.LEFT_UPPER_LEG: 0.1,
     Bone.RIGHT_UPPER_LEG: 0.1,
     Bone.SPINE: 0.2,
-    Bone.LEFT_LOWER_LEG: 0.5,
-    Bone.RIGHT_LOWER_LEG: 0.5,
+    Bone.LEFT_LOWER_LEG: 0.1,
+    Bone.RIGHT_LOWER_LEG: 0.1,
     Bone.CHEST: 0.8,
-    Bone.LEFT_FOOT: 0.8,
-    Bone.RIGHT_FOOT: 0.8,
+    Bone.LEFT_FOOT: 0.2,
+    Bone.RIGHT_FOOT: 0.2,
     Bone.UPPER_CHEST: 0.8,
-    Bone.LEFT_TOES: 1,
-    Bone.RIGHT_TOES: 1,
-    Bone.NECK: 1,
+    Bone.LEFT_TOES: 0.1,
+    Bone.RIGHT_TOES: 0.1,
+    Bone.NECK: 0.3,
     Bone.LEFT_SHOULDER: 1,
     Bone.RIGHT_SHOULDER: 1,
-    Bone.HEAD: 1,
+    Bone.HEAD: 0.3,
     Bone.LEFT_UPPER_ARM: 0.9,
     Bone.RIGHT_UPPER_ARM: 0.9,
     Bone.LEFT_LOWER_ARM: 0.9,
@@ -300,11 +307,41 @@ class MyQuaternion(Quaternion):
     # q13: line1 --> line3
     def rotation_to(self, q13):
         q12_inv = self.quaternion_inverse()
-        return q12_inv.multiply_by(q13)
+        rot = q12_inv.multiply_by(q13)
+        return MyQuaternion(rot.x, rot.y, rot.z, rot.w)
 
+
+
+def replace_by_parent(quaternions):
+    # 按数组 humanml3d_kinematic_tree 列出的父子关系，将子节点根据位置计算出的旋转赋值给父节点(从每个数组的第三个开始，最后一个赋值为0)
+    bone_list_count = 0
+    for bone_list in humanml3d_kinematic_tree:
+        bone_list_count += 1
+        if bone_list_count == 1:
+            continue
+        for i in range(2, len(bone_list)):
+            parrent_index = bone_list[i-1]
+            child_index = bone_list[i]
+            quaternions[parrent_index] = quaternions[child_index]
+        # 将每组末尾节点的旋转赋值为0
+        quaternions[bone_list[-1]] = Quaternion.identity()
+    return quaternions
+
+def relative_from_parent(quaternions):
+    # 按数组 humanml3d_kinematic_tree 列出的父子关系，从子节点开始计算相对旋转
+    for bone_list in humanml3d_kinematic_tree:
+        # 从叶子节点开始便利
+        for i in range(len(bone_list)-1, 0, -1):
+            parrent_index = bone_list[i-1]
+            child_index = bone_list[i]
+            quaternions[child_index] = quaternions[parrent_index].rotation_to(quaternions[child_index])
+    return quaternions
+
+def use_a2p_bones(id):
+    return (id >= 13 and id != 15 ) 
 
 # 计算每个位置的连线到下一段联系的转动角度的四元数
-def postions_to_quaternions(positions, last_positions, bones, control_by_parrent = True):
+def postions_to_quaternions(positions, last_positions, bones, control_by_parent = True):
     quaternions = []
     quaternions.append(MyQuaternion.identity())
     for i in range(1, len(positions)):
@@ -325,15 +362,8 @@ def postions_to_quaternions(positions, last_positions, bones, control_by_parrent
             continue
         quaternions[i] = quaternions[parrent_index].rotation_to(quaternions[i])
     
-    if control_by_parrent:
-        # 按数组 humanml3d_kinematic_tree 列出的父子关系，将子节点根据位置计算出的旋转赋值给父节点(从每个数组的第三个开始，最后一个赋值为0)
-        for bone_list in humanml3d_kinematic_tree:
-            for i in range(2, len(bone_list)):
-                parrent_index = bone_list[i-1]
-                child_index = bone_list[i]
-                quaternions[parrent_index] = quaternions[child_index]
-            # 将每组末尾节点的旋转赋值为0
-            quaternions[bone_list[-1]] = Quaternion.identity()
+    if control_by_parent:
+        quaternions = replace_by_parent(quaternions)
         # reset head rotation
         quaternions[15] = Quaternion.identity()
 
@@ -341,7 +371,7 @@ def postions_to_quaternions(positions, last_positions, bones, control_by_parrent
 
 
 
-def gen_bone_message_tuple(bone_tuple, positions, last_positions, init_positions, is_first_frame):
+def gen_bone_message_tuple(bone_tuple, positions, last_positions, init_positions, is_first_frame, rotations):
     messages = ()
     quaternions = ()
     if is_first_frame:
@@ -358,9 +388,28 @@ def gen_bone_message_tuple(bone_tuple, positions, last_positions, init_positions
                 )),
             )
     else:
+        quaternions = []
+
         # quaternions = postions_to_quaternions(positions, last_positions)
         # quaternions = postions_to_quaternions(positions, init_positions)
         quaternions = postions_to_quaternions(positions, g_humanml3d_t_pose_positions, bone_tuple)
+        if rotations is not None:
+            # 遍历 (22, 4) 的旋转序列，生成22个Quaternion
+            quaternions_from_quaternion = []
+            for i in range(0, len(rotations)):
+                # a2p计算四元数旋转时，原始的坐标的x，z轴与opengl相反，因此需要还原
+                rot = MyQuaternion(*rotations[i])
+                rot_delta = MyQuaternion(0, 1, 0, 0)
+                rot = rot_delta.multiply_by(rot)
+                # rot = rot.multiply_by(rot_delta)
+                rot = MyQuaternion(rot.x, rot.y, rot.z, rot.w)
+                quaternions_from_quaternion.append(rot)
+            quaternions_from_quaternion = relative_from_parent(quaternions_from_quaternion)
+            # 对id是手臂的部分使用四元数旋转
+            for i in range(0, len(quaternions)):
+                if use_a2p_bones(i):
+                    quaternions[i] = quaternions_from_quaternion[i]
+
 
         for (bone, position, init_position, quaternion, t_pose_position) in zip(bone_tuple, positions, init_positions, quaternions, g_humanml3d_t_pose_positions):
             if bone is None:
@@ -385,7 +434,7 @@ def gen_bone_message_tuple(bone_tuple, positions, last_positions, init_positions
 
 global_counter = 0
 global_init_postion = None
-def send_osc_data(sender, cur_positions, last_positions, is_first_frame = False):
+def send_osc_data(sender, cur_positions, last_positions, rotations, is_first_frame = False):
     cur_positions = to_relative_position(cur_positions)
     if not is_first_frame:
         last_positions = to_relative_position(last_positions)
@@ -398,11 +447,11 @@ def send_osc_data(sender, cur_positions, last_positions, is_first_frame = False)
     # data_list (22, 3)
     # print('data_list', data_list)
 
-    y_off_set = -0.17
+    y_off_set = -0.18
 
     root_pos = CoordinateVector.identity()
     if not is_first_frame:
-        scale = 0.4
+        scale = 0.0001
         root_pos = CoordinateVector(
             scale * (cur_positions[0][0]-global_init_postion[0][0]), 
             scale*(cur_positions[0][1]-global_init_postion[0][1]) + y_off_set,
@@ -427,6 +476,7 @@ def send_osc_data(sender, cur_positions, last_positions, is_first_frame = False)
         last_positions,
         global_init_postion,
         is_first_frame,
+        rotations
     )
     messages += (
                 Message(*state(ModelState.LOADED)),
@@ -435,28 +485,39 @@ def send_osc_data(sender, cur_positions, last_positions, is_first_frame = False)
     sender.send(messages)
 
 
-def send_montions(file_paths):
+def send_montions():
     #np读取文件列表，在第二维度上合并
-    print('file count:', len(file_paths))
-    bs = np.concatenate([np.load(file_path, allow_pickle=True) for file_path in file_paths], axis=1)
-    # 最后一维的第一个元素取反，坐标系单轴镜像
-    # bs[:, :, :, 0] *= -1
-    print(bs.shape)
+    print('positions files count:', len(positions_files))
+    bs = np.concatenate([np.load(file_path, allow_pickle=True) for file_path in positions_files], axis=1)
+    if is_a2p:
+        # a2p 坐标映射
+        bs[:, :, :, 0] *= -1
+        # bs[:, :, :, 1] *= -1
+        bs[:, :, :, 2] *= -1
+        print('a2p mirror done')
+    print('positions data shape', bs.shape)
     # (1, 192, 22, 3)
-    # 在 axis=1上线性插值成两倍数据 (1, 384, 22, 3)
-    new_bs = np.zeros((bs.shape[0], bs.shape[1]*2, bs.shape[2], bs.shape[3]))
-    for i in range(0, bs.shape[0]):
-        for j in range(0, bs.shape[2]):
-            for k in range(0, bs.shape[3]):
-                line_data = bs[i, :, j, k]
-                line_data = np.interp(np.arange(0, len(line_data), 0.5), np.arange(0, len(line_data)), line_data)
-                new_bs[i, :, j, k] = line_data
-    bs = new_bs
-    print(bs.shape)
-    fps = 30
+
+    # # 在 axis=1上线性插值成两倍数据 (1, 384, 22, 3)
+    if do_linear_interpolation:
+        new_bs = np.zeros((bs.shape[0], bs.shape[1]*2, bs.shape[2], bs.shape[3]))
+        for i in range(0, bs.shape[0]):
+            for j in range(0, bs.shape[2]):
+                for k in range(0, bs.shape[3]):
+                    line_data = bs[i, :, j, k]
+                    line_data = np.interp(np.arange(0, len(line_data), 0.5), np.arange(0, len(line_data)), line_data)
+                    new_bs[i, :, j, k] = line_data
+        bs = new_bs
+        print('after linear interpolation', bs.shape)
+
+    #  从 a2p_rotations.npy  读出 (t, 22, 4)的旋转序列
+    if a2p_rotations_files is not None:
+        a2p_rotations = np.concatenate([np.load(file_path, allow_pickle=True) for file_path in a2p_rotations_files], axis=0)
+        print('a2p_rotations.shape', a2p_rotations.shape)
 
     # 将上述时序数据平滑 0-t(192)
     if True:
+        print('smoothing')
         # 将第二维放到最末尾: 0, 1, 2, 3 --> 0, 2, 3, 1
         bs = np.swapaxes(bs, 1, 2)
         bs = np.swapaxes(bs, 2, 3)
@@ -487,7 +548,10 @@ def send_montions(file_paths):
                     print('now', now, 'next_send_time', next_send_time, 'sleep_time', sleep_time)
                 if sleep_time > 0:
                     systime.sleep(sleep_time)
-                send_osc_data(sender, bs[0][i], bs[0][i-1],  i == 0)
+                rotations = None
+                if a2p_rotations_files is not None and i < a2p_rotations.shape[0]:
+                    rotations = a2p_rotations[i]
+                send_osc_data(sender, bs[0][i], bs[0][i-1], rotations, i == 0)
                 osc.run()
 
     except KeyboardInterrupt:
@@ -495,11 +559,33 @@ def send_montions(file_paths):
     finally:
         osc.close()
 
+import argparse
 # get input file path
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print('python vmc_cli.py np_file_path...')
+    # 从命令行入参读取a2p旋转角度文件名： --a2p a2p_rotations.npy
+    parse = argparse.ArgumentParser()
+    # is a2p
+    parse.add_argument('--a2p', type=bool, default=False)
+    parse.add_argument('--a2p_rotations_files', type=str, default=None, nargs='+')
+    # 读取骨骼坐标文件列表
+    parse.add_argument('--positions_files', type=str, nargs='+')
+    # fps
+    parse.add_argument('--fps', type=float, default=30)
+    # do_linear_interpolation
+    parse.add_argument('--do_linear_interpolation', type=bool, default=False)
+
+    args = parse.parse_args()
+    is_a2p = args.a2p
+    if args.a2p_rotations_files is not None:
+        print('a2p_rotations_files', args.a2p_rotations_files)
+        a2p_rotations_files = args.a2p_rotations_files
+    if args.positions_files is not None:
+        positions_files = args.positions_files
+    fps = args.fps
+    do_linear_interpolation = args.do_linear_interpolation
+    
+    if positions_files is None and a2p_rotations_files is None:
+        print('python vmc_cli.py --a2p_rotations_files a2p_rotations.npy --positions_files np_file_path ... --fps 30 --do_linear_interpolation False')
         exit(1)
 
-    np_file_paths = sys.argv[1:] 
-    send_montions(np_file_paths)
+    send_montions()

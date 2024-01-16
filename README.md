@@ -1,6 +1,9 @@
 # 简介
 * 本项目的目的是拓展[Bert-VITS2](https://github.com/fishaudio/Bert-VITS2)的使用边界，比如TTS同步产生脸部表情数据。
-* 效果参见 [demo1](https://www.bilibili.com/video/BV1s64y1H7ij/)   [demo2](https://www.bilibili.com/video/BV16W4y1P73h/)
+* 效果参见
+  * [TTS生成表情初版，与MotionGPT拟合](https://www.bilibili.com/video/BV1s64y1H7ij/)   
+  * [从歌声生成表情测试；与Azure TTS说话时的表情对比](https://www.bilibili.com/video/BV16W4y1P73h/)
+
 
 
 # TTS
@@ -40,7 +43,7 @@ python ./motion/record.py
 * 测试数据
   * 将录下的bs数据通过live link发给UE中的MetaHuman，同步播放语音，检查是否匹配
 ```
-python ./motion/tts2ue.py  ./records/2023-12-23-17-19-54.npy ./records/2023-12-23-17-19-54.wav 60
+python ./motion/tts2ue.py --bs_npy_file  ./records/2023-12-23-17-19-54.npy --wav_file ./records/2023-12-23-17-19-54.wav  --fps 60
 ```
 
 ## 数据预处理
@@ -63,7 +66,7 @@ python train_ms.py  -m OUTPUT_MODEL --config ./configs/config.json --visemes
 * 生成的动画默认的fps是和隐变量一样的86.1328125
   * 44100/86.1328125 = 512，刚好整除，这是Bert-VITS2音频采样频率、网络结构和hidden_channels决定的
 ```
-python ./motion/tts2ue.py tmp.npy tmp.wav 86.1328125
+python ./motion/tts2ue.py --bs_npy_file ./tmp.npy --wav_file ./tmp.wav --delay_ms 700
 ```
 
 # 声音到表情
