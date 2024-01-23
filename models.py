@@ -1093,19 +1093,21 @@ class VisemesNet(nn.Module):
             return x
 
     def __init__(self, hidden_channels, lstm_bidirectional=True, active_fun = 3, enable_conv=True, 
-                 use_transformer = False, enable_dropout=True):
+                 use_transformer = True, enable_dropout=True, use_gru=False):
         super(VisemesNet, self).__init__()
         self.lstm_bidirectional = lstm_bidirectional
         self.lstm_directions = 2 if lstm_bidirectional else 1
         self.use_transformer = use_transformer
+
         self.enable_dropout = enable_dropout
+        dropout_rate = 0.4
         if active_fun == 3:
             self.leakyReLU = nn.LeakyReLU(negative_slope=0.01)
         if use_transformer:
             num_heads=8
             num_layers=3
             dim_feedforward=512
-            dropout=0.1
+            dropout=dropout_rate
             activation="relu"
             self.transformer_encoder_layer = nn.TransformerEncoderLayer(
                 d_model=hidden_channels, 
@@ -1116,18 +1118,18 @@ class VisemesNet(nn.Module):
                 batch_first=True
             )
             self.transformer_encoder = nn.TransformerEncoder(self.transformer_encoder_layer, num_layers=num_layers)
+        
+        if use_gru:
+            self.lstm = nn.GRU(input_size=hidden_channels, hidden_size=128, num_layers=3, batch_first=True, bidirectional=lstm_bidirectional, dropout=dropout_rate)
         else:
-            self.lstm = nn.LSTM(input_size=hidden_channels, hidden_size=128, num_layers=3, batch_first=True, bidirectional=lstm_bidirectional)
-        if use_transformer:
-            self.fc1 = nn.Linear(hidden_channels, 96)
-        else:
-            self.fc1 = nn.Linear(128 * self.lstm_directions, 96)
+            self.lstm = nn.LSTM(input_size=hidden_channels, hidden_size=128, num_layers=3, batch_first=True, bidirectional=lstm_bidirectional,dropout=dropout_rate)
+
+        self.fc1 = nn.Linear(128 * self.lstm_directions, 96)
         self.fc2 = nn.Linear(96, 61)
-        dropout_rate = 0.5
         if self.enable_dropout:
             self.dropout = nn.Dropout(dropout_rate)
-        conv_kernel_pre = 15
-        conv_kernel_post = 11
+        conv_kernel_pre = 3
+        conv_kernel_post = 5
         self.conv1d_pre = nn.Conv1d(in_channels=hidden_channels, out_channels=hidden_channels, kernel_size=conv_kernel_pre, stride=1, padding=conv_kernel_pre//2)
         self.conv1d_post = nn.Conv1d(in_channels=61, out_channels=61, kernel_size=conv_kernel_post, stride=1, padding=conv_kernel_post//2)
         self.enable_conv = enable_conv
@@ -1135,41 +1137,14 @@ class VisemesNet(nn.Module):
 
     def forward(self, x, y=None):
         # x [batch_size, hidden_channels, seq_len]
-        if self.use_transformer:
-            return self.forward_transformer(x, y)
-        else:
-            return self.forward_lstm(x, y)
-
-    def forward_transformer(self, x, y=None):
-        # x [batch_size, hidden_channels, seq_len]
-        if self.enable_conv:
-            x = self.conv1d_pre(x)
-        # batch_first: True (batch, seq, feature);  False (seq, batch, feature).
-        x = x.transpose(1, 2)
-
-        expressions = self.transformer_encoder(x)
-        
-        if self.enable_dropout:
-            expressions = self.dropout(expressions)
-        expressions = self.fc1(expressions)
-        # expressions = self.active(expressions)
-        if self.enable_dropout:
-            expressions = self.dropout(expressions)
-        expressions = self.fc2(expressions)
-
-        expressions = expressions.transpose(1, 2)
-        if self.enable_conv:
-            expressions = self.conv1d_post(expressions)
-
-        return expressions 
-
-    def forward_lstm(self, x, y=None):
-        # x [batch_size, hidden_channels, seq_len]
         if self.enable_conv:
             x = self.conv1d_pre(x)
         x = x.transpose(1, 2)
         # x [batch_size, seq_len, hidden_channels]
         expressions = None
+        if self.use_transformer:
+            x = self.transformer_encoder(x)
+
         expressions, _ = self.lstm(x)
         if self.enable_dropout:
             expressions = self.dropout(expressions)
