@@ -106,7 +106,7 @@ python  ./motion/wav_to_visemes.py output.wav
 
 ## audio2photoreal
 * 在原项目的基础上修改，Web界面推理时导出动画数据到本地文件
-  * [导出过程](moiton/data.ipynb)
+  * [导出过程](https://github.com/see2023/audio2photoreal/blob/main/test.ipynb)
   * 代码 https://github.com/see2023/audio2photoreal
 
 
