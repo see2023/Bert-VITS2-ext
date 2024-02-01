@@ -89,6 +89,8 @@ python  ./motion/wav_to_visemes.py output.wav
 
 # 身体动画
 
+## MotionGPT
+
 * 有了语音和表情后，还可以在LLM驱动下产生与之匹配的动作描述，然后用text to motion模型生成与说话内容匹配的身体动画，甚至和场景、他人进行交互。
 * text to motion测试采用的项目是 [MotionGPT](https://github.com/OpenMotionLab/MotionGPT)
   * 暂未做动画过度处理，看介绍模型是支持的 [motion in-between](https://motion-gpt.github.io/)
@@ -102,6 +104,10 @@ python  ./motion/wav_to_visemes.py output.wav
     * 借助[Mop插件](https://github.com/HAL9HARUKU/MopUE4)将MOP数据映射给MetaHuman
       * 测试版本是UE5.3
 
+## audio2photoreal
+* 在原项目的基础上修改，Web界面推理时导出动画数据到本地文件
+  * [导出过程](moiton/data.ipynb)
+  * 代码 https://github.com/see2023/audio2photoreal
 
 
 # Bert-VITS2 原版声明
