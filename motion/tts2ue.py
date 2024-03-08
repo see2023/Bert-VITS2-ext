@@ -102,7 +102,8 @@ def play_and_send(udp_sender, bs_npy_file, wav_file, fps):
         play_wav_binary(data)
 
         #wait t1 t2
-        t1.join()
+        if t1 is not None:
+            t1.join()
         t2.join()
 
 

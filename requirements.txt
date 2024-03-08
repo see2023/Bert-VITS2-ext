@@ -11,7 +11,7 @@ jieba
 transformers
 pypinyin
 cn2an
-gradio==3.50.2
+gradio
 av
 mecab-python3
 loguru

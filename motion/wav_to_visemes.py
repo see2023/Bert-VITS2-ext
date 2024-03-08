@@ -1,7 +1,7 @@
 import os,sys
 import torch
 import numpy as np
-sys.path.append('./')
+sys.path.insert(0, os.path.abspath('.'))
 import utils
 from models import VisemesNet
 from mel_processing import spectrogram_torch
@@ -32,25 +32,34 @@ if __name__ == '__main__':
     _ = utils.load_checkpoint(config.webui_config.v_model, net_v, None, skip_optimizer=True)
     print("load v_model from", config.webui_config.v_model)
 
-    # load wav file
-    audio_norm, sampling_rate = torchaudio.load(wav_file, frame_offset=0, num_frames=-1, normalize=True, channels_first=True)
-    # check sampling_rate == 44100
-    if sampling_rate != 44100:
-        print('sampling_rate error:', sampling_rate)
-        print('ffmpeg -i input.wav -ar 44100 output.wav')
-        exit(1)
-    spec = spectrogram_torch(audio_norm, hps.data.filter_length,
-        hps.data.sampling_rate, hps.data.hop_length, hps.data.win_length,
-        center=False)
-    spec = spec.to(device=get_device())
-    audio_norm = audio_norm.unsqueeze(0)
-    x_lengths = torch.clamp_min(torch.sum(spec, [1, 2]), 1).long()
+    if wav_file.endswith('z.npy'):
+        print('load z from npy file')
+        z = np.load(wav_file)
+        z = torch.from_numpy(z).to(device)
+        # if type is half, convert to float
+        if z.dtype == torch.float16:
+            z = z.float()
+        visemes = net_v(z)
+    else:
+        # load wav file
+        audio_norm, sampling_rate = torchaudio.load(wav_file, frame_offset=0, num_frames=-1, normalize=True, channels_first=True)
+        # check sampling_rate == 44100
+        if sampling_rate != 44100:
+            print('sampling_rate error:', sampling_rate)
+            print('ffmpeg -i input.wav -ar 44100 output.wav')
+            exit(1)
+        spec = spectrogram_torch(audio_norm, hps.data.filter_length,
+            hps.data.sampling_rate, hps.data.hop_length, hps.data.win_length,
+            center=False)
+        spec = spec.to(device=get_device())
+        audio_norm = audio_norm.unsqueeze(0)
+        x_lengths = torch.clamp_min(torch.sum(spec, [1, 2]), 1).long()
 
-    # get z
-    z, m_q, logs_q, y_mask = enc(spec, x_lengths=x_lengths, g=None)
-    print('get z of wav file: ', wav_file)
+        # get z
+        z, m_q, logs_q, y_mask = enc(spec, x_lengths=x_lengths, g=None)
+        print('get z of wav file: ', wav_file)
+
     visemes_file_path = wav_file[:-4] + '.v.npy'
-
     # generate visemes
     visemes = net_v(z)
     visemes = visemes.squeeze(0)

@@ -1,7 +1,7 @@
 
 import os,sys
 import torch
-sys.path.append('./')
+sys.path.insert(0, os.path.abspath('.'))
 import utils
 from text.symbols import symbols
 from models import SynthesizerTrn, PosteriorEncoder, Generator
@@ -58,7 +58,17 @@ def test_wav_enc_dec(hps, input_file='test_in.wav', output_file='test_out.wav', 
     torchaudio.save(output_file, y, sampling_rate)
     print('output_file: ', output_file, 'saved')
 
+def save_post_enc_model(hps, model_path = './OUTPUT_MODEL/models/G_3000.pth', device='cpu'):
+    # load the model
+    print('Loading model from {}'.format(model_path))
+    enc, _ = load_post_enc_dec_model(hps, model_path, device)
+    print('Model loaded')
+    post_enc_path = os.path.join(os.path.dirname(model_path), 'post_enc.pth')
+    torch.save(enc.state_dict(), post_enc_path)
+    print('Post-encoder saved to {}'.format(post_enc_path))
+
 
 if __name__ == '__main__':
     hps = utils.get_hparams_from_file('./configs/config.json')
     # test_wav_enc_dec(hps)
+    save_post_enc_model(hps)
