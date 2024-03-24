@@ -6,7 +6,11 @@
   * [从歌声生成表情测试；与Azure TTS说话时的表情对比](https://www.bilibili.com/video/BV16W4y1P73h/)
   * [TTS生成表情初版，与MotionGPT拟合](https://www.bilibili.com/video/BV1s64y1H7ij/)   
 
-
+# 扩展到GPT-SoVITS
+* [GPT-SoVITS 表情测试](https://www.bilibili.com/video/BV1GD42177B9/)
+  * 直接在 [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS)上重新训练，实测结果比较糟糕
+  * 暂时使用的方法是从Bert-VITS2-ext里直接把后验部分以及表情生成部分模型复制到GPT-SoVITS里测试。
+  * 这会导致一次重复的计算，以及更多的预测变差
 
 # TTS
 
