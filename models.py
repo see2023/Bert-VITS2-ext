@@ -1080,6 +1080,16 @@ class SynthesizerTrn(nn.Module):
 
 
 
+# 来自Gemini的解释 -_-
+# 输入 TTS 隐变量 z (声音特征)。
+# conv1d_pre 初步提取时序局部特征。
+# transpose(1, 2) 调整维度顺序，方便 Transformer 和 LSTM 处理。
+# transformer_encoder 捕捉声音特征之间的全局关系和上下文信息。
+# lstm (或 gru) 学习声音特征到表情参数的映射，并建模时序动态。
+# dropout 防止过拟合。
+# fc1 和 fc2 全连接层进行特征变换和降维，最终输出 61 维 ARKit 表情参数。
+# conv1d_post 平滑表情参数的时间序列。
+# 输出 61 维 ARKit 表情参数，用于驱动虚拟人物面部表情。
 class VisemesNet(nn.Module):
     def active(self, x):
         #  active_fun: 0: null, 1: tanh, 2: relu, 3: LeakyReLU
