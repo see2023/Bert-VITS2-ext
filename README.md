@@ -5,6 +5,11 @@
   * [TTS with Audio2PhotoReal --> MetaHuman](https://www.bilibili.com/video/BV1dg4y1m7sX/)
   * [从歌声生成表情测试；与Azure TTS说话时的表情对比](https://www.bilibili.com/video/BV16W4y1P73h/)
   * [TTS生成表情初版，与MotionGPT拟合](https://www.bilibili.com/video/BV1s64y1H7ij/)   
+# 2025.8改进
+  * 输入从1D变为2D：旧模型输入是 [B, C, T] 的一维序列，而新模型输入是 [B, H, W, C] 即 [批次, 频率, 时间, 1] 的二维数据
+  * 用 Conv2D 替代了 Conv1D 作为特征提取的起点
+  * 移除了计算量巨大的Transformer模块
+  * [Demo 2025](https://www.bilibili.com/video/BV1yUtVzNEtw/) 
 
 # 扩展到CosyVoice
 * [CosyVoice表情测试](https://www.bilibili.com/video/BV1srsxeMERA/)
