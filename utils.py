@@ -100,7 +100,7 @@ def load_checkpoint(checkpoint_path, model, optimizer=None, skip_optimizer=False
             # For upgrading from the old version
             if "ja_bert_proj" in k:
                 v = torch.zeros_like(v)
-                logger.warn(
+                logger.warning(
                     f"Seems you are using the old version of the model, the {k} is automatically set to zero for backward compatibility"
                 )
             else:
@@ -167,7 +167,7 @@ def latest_checkpoint_path(dir_path, regex="G_*.pth"):
         f_list.sort(key=lambda f: int("".join(filter(str.isdigit, f))))
         x = f_list[-1]
     except Exception as e:
-        logger.warn(e)
+        logger.warning(e)
     return x
 
 
@@ -346,7 +346,7 @@ def get_hparams_from_file(config_path):
 def check_git_hash(model_dir):
     source_dir = os.path.dirname(os.path.realpath(__file__))
     if not os.path.exists(os.path.join(source_dir, ".git")):
-        logger.warn(
+        logger.warning(
             "{} is not a git repository, therefore hash value comparison will be ignored.".format(
                 source_dir
             )
@@ -359,7 +359,7 @@ def check_git_hash(model_dir):
     if os.path.exists(path):
         saved_hash = open(path).read()
         if saved_hash != cur_hash:
-            logger.warn(
+            logger.warning(
                 "git hash values are different. {}(saved) != {}(current)".format(
                     saved_hash[:8], cur_hash[:8]
                 )
